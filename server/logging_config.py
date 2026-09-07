@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 
 
@@ -8,14 +9,26 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _SIMPLE_VALUE = re.compile(r"^[A-Za-z0-9_.:@/+-]+$")
 
+THIRD_PARTY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "huggingface_hub",
+    "transformers",
+    "sentence_transformers",
+    "urllib3",
+    "websockets",
+)
+
 
 def configure_logging(level=logging.INFO):
+    os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
     logging.basicConfig(
         level=level,
         format=LOG_FORMAT,
         datefmt=LOG_DATE_FORMAT,
     )
-    logging.getLogger("websockets").setLevel(logging.WARNING)
+    for logger_name in THIRD_PARTY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def log_event(logger, level, event, *, exc_info=False, **fields):

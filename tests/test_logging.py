@@ -1,11 +1,17 @@
 import asyncio
 import logging
+import os
 
 from room_service import RoomService
 from security import DLPChecker
 from server import client_session
 from server.client_session import AppStore, ClientSession
-from server.logging_config import connection_fields, log_event
+from server.logging_config import (
+    THIRD_PARTY_LOGGERS,
+    configure_logging,
+    connection_fields,
+    log_event,
+)
 
 
 class FakeWebSocket:
@@ -49,6 +55,31 @@ def test_connection_fields_include_remote_endpoint():
         "remote_host": "127.0.0.1",
         "remote_port": 54321,
     }
+
+
+def test_logging_config_keeps_app_info_and_third_party_warnings(
+    monkeypatch,
+    caplog,
+):
+    for logger_name in THIRD_PARTY_LOGGERS:
+        third_party_logger = logging.getLogger(logger_name)
+        monkeypatch.setattr(third_party_logger, "level", third_party_logger.level)
+    monkeypatch.delenv("HF_HUB_DISABLE_PROGRESS_BARS", raising=False)
+    caplog.set_level(logging.INFO)
+
+    configure_logging()
+    logging.getLogger("server.demo").info("event=APP_INFO_VISIBLE")
+    logging.getLogger("httpx").info("third-party-info")
+    logging.getLogger("httpx").warning("third-party-warning")
+
+    assert "event=APP_INFO_VISIBLE" in caplog.messages
+    assert "third-party-info" not in caplog.messages
+    assert "third-party-warning" in caplog.messages
+    assert all(
+        logging.getLogger(logger_name).level == logging.WARNING
+        for logger_name in THIRD_PARTY_LOGGERS
+    )
+    assert os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] == "1"
 
 
 def test_message_accepted_logs_metadata_not_content(tmp_path, monkeypatch, caplog):
