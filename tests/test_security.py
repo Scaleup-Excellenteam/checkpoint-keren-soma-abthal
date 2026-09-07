@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from room_service import RoomService
-from security import AntiBotRateLimiter, SecurityDecision
+from security import AntiBotRateLimiter, DLPChecker, SecurityDecision
 from server import client_session
 from server.client_session import AppStore, ClientSession
 from storage import StorageManager
@@ -115,6 +115,7 @@ def test_blocked_message_is_not_broadcast(tmp_path, monkeypatch, caplog):
         "anti_bot",
         AntiBotRateLimiter(max_messages=1, clock=FakeClock()),
     )
+    monkeypatch.setattr(client_session, "dlp", DLPChecker())
     caplog.set_level(logging.INFO, logger=client_session.logger.name)
 
     allowed_response = asyncio.run(

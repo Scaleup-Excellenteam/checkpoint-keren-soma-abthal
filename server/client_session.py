@@ -224,6 +224,7 @@ from room_service import RoomService
 from security import (
     AntiBotRateLimiter,
     DLPChecker,
+    SentenceTransformerEmbeddingBackend,
     URLReputationChecker,
     VirusTotalClient,
 )
@@ -262,7 +263,9 @@ auth_service = AuthService(storage)
 room_service = RoomService(storage)
 anti_bot = AntiBotRateLimiter()
 url_reputation = URLReputationChecker(VirusTotalClient())
-dlp = DLPChecker()
+dlp = DLPChecker(
+    embedding_backend=SentenceTransformerEmbeddingBackend(),
+)
 
 
 class ClientSession:
@@ -1028,7 +1031,7 @@ async def handle_send_message(
             "Message blocked by security policy",
         )
 
-    dlp_result = dlp.check_message(message)
+    dlp_result = await dlp.check_message_async(message)
     dlp_decision = dlp_result.decision
     log_event(
         logger,
@@ -1043,6 +1046,11 @@ async def handle_send_message(
         action=dlp_decision.action,
         reason_code=dlp_decision.reason_code,
         matched_fragment_id=dlp_result.matched_fragment_id,
+        similarity=(
+            round(dlp_result.similarity_score, 3)
+            if dlp_result.similarity_score is not None
+            else None
+        ),
         length=len(message),
     )
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from room_service import RoomService
+from security import DLPChecker
 from server import client_session
 from server.client_session import AppStore, ClientSession
 from server.logging_config import connection_fields, log_event
@@ -63,6 +64,7 @@ def test_message_accepted_logs_metadata_not_content(tmp_path, monkeypatch, caplo
     online_users.online_users[session.user_id] = session
     monkeypatch.setattr(client_session, "room_service", rooms)
     monkeypatch.setattr(client_session, "store", online_users)
+    monkeypatch.setattr(client_session, "dlp", DLPChecker())
     caplog.set_level(logging.INFO, logger=client_session.logger.name)
 
     response = asyncio.run(
