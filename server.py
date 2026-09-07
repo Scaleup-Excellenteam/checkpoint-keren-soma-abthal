@@ -14,9 +14,9 @@ async def handle_client(websocket):
         return
 
     print("CLIENT_CONNECTED", flush=True)
-    message = await websocket.recv()
-    await websocket.send(HELLO_REPLY)
-    print("Recive message: ", message, flush=True)
+    async for message in websocket:
+        print("Recive message: ", message, flush=True)
+        await websocket.send(HELLO_REPLY)
 
 
 async def main():

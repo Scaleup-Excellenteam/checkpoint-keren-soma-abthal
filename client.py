@@ -9,8 +9,8 @@ CLIENT_MESSAGE = "ping"
 async def main():
     async with connect(SERVER_URL) as websocket:
         await websocket.send(CLIENT_MESSAGE)
-        reply = await websocket.recv()
-        print(reply)
+        async for reply in websocket:
+            print(reply, flush=True)
 
 
 if __name__ == "__main__":
