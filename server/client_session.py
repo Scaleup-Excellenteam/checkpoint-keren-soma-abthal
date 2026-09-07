@@ -221,6 +221,7 @@ import logging
 from auth_service import AuthService
 from errors import AppError
 from room_service import RoomService
+from security import AntiBotRateLimiter
 from storage import StorageManager
 
 from .logging_config import connection_fields, log_event
@@ -254,6 +255,7 @@ logger = logging.getLogger(__name__)
 storage = StorageManager()
 auth_service = AuthService(storage)
 room_service = RoomService(storage)
+anti_bot = AntiBotRateLimiter()
 
 
 class ClientSession:
@@ -969,6 +971,29 @@ async def handle_send_message(
             request_id,
             error.code,
             str(error),
+        )
+
+    security_decision = anti_bot.check(session.user_id)
+    log_event(
+        logger,
+        logging.INFO if security_decision.allowed else logging.WARNING,
+        "SECURITY_DECISION",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+        control=security_decision.control,
+        decision="ALLOW" if security_decision.allowed else "BLOCK",
+        action=security_decision.action,
+        reason_code=security_decision.reason_code,
+        length=len(message),
+    )
+
+    if not security_decision.allowed:
+        return build_error(
+            request_id,
+            security_decision.reason_code,
+            "Message blocked by security policy",
         )
 
     # -----------------------------------------------------
