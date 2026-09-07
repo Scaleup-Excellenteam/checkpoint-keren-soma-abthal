@@ -27,11 +27,18 @@ CODE_ALREADY_ROOM_MEMBER = "ALREADY_ROOM_MEMBER"
 CODE_NOT_ROOM_MEMBER = "NOT_ROOM_MEMBER"
 CODE_MESSAGE_ACCEPTED = "MESSAGE_ACCEPTED"
 
+CODE_SIGNUP_SUCCESS = "SIGNUP_SUCCESS"
+CODE_LOGOUT_SUCCESS = "LOGOUT_SUCCESS"
+CODE_ROOM_LEFT = "ROOM_LEFT"
+
 KNOWN_ACTIONS = frozenset(
     {
+        "signup",
         "login",
+        "logout",
         "create_room",
         "join_room",
+        "leave_room",
         "list_rooms",
         "send_message",
     }

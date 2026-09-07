@@ -2,8 +2,8 @@ import asyncio
 
 from websockets.asyncio.server import serve
 
-from client_session import ClientSession, handle_disconnect, handle_request
-from protocol import (
+from .client_session import ClientSession, handle_disconnect, handle_request
+from .protocol import (
     CODE_INVALID_JSON,
     CODE_UNKNOWN_ACTION,
     KNOWN_ACTIONS,
