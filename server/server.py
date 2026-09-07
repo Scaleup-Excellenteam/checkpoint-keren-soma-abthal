@@ -2,13 +2,12 @@ import asyncio
 
 from websockets.asyncio.server import serve
 
-from client_session import ClientSession, handle_disconnect
+from client_session import ClientSession, handle_disconnect, handle_request
 from protocol import (
     CODE_INVALID_JSON,
     CODE_UNKNOWN_ACTION,
     KNOWN_ACTIONS,
     build_error,
-    build_ok,
     encode,
     parse_json,
     validate_request,
@@ -19,7 +18,7 @@ PORT = 8765
 WEBSOCKET_PATH = "/ws"
 
 
-def reply_for_message(text):
+def reply_for_message(session, text):
     data = parse_json(text)
     if data is None:
         print("VALIDATION_FAILED", CODE_INVALID_JSON, flush=True)
@@ -36,7 +35,7 @@ def reply_for_message(text):
     if action not in KNOWN_ACTIONS:
         return build_error(request["request_id"], CODE_UNKNOWN_ACTION, "Unknown action")
 
-    return build_ok(request["request_id"])
+    return handle_request(session, request)
 
 
 async def handle_client(websocket):
@@ -48,7 +47,7 @@ async def handle_client(websocket):
     print("CLIENT_CONNECTED", flush=True)
     try:
         async for message in session.websocket:
-            await session.websocket.send(encode(reply_for_message(message)))
+            await session.websocket.send(encode(reply_for_message(session, message)))
     finally:
         handle_disconnect(session)
 

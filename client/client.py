@@ -1,8 +1,11 @@
 import asyncio
+import sys
+from pathlib import Path
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "server"))
 from protocol import build_request, encode, parse_json
 
 SERVER_URL = "ws://localhost:8765/ws"
@@ -46,10 +49,25 @@ def display_server_message(text):
         status = data.get("status")
         code = data.get("code")
         message = data.get("message")
+        payload = data.get("payload") or {}
         if message:
             print(f"{status}: {code} ({message})", flush=True)
         else:
             print(f"{status}: {code}", flush=True)
+        if code == "LOGIN_SUCCESS":
+            print(f"  user_id={payload.get('user_id')} username={payload.get('username')}", flush=True)
+        elif code == "ROOM_CREATED" or code == "ROOM_JOINED":
+            print(f"  room_id={payload.get('room_id')} name={payload.get('name')}", flush=True)
+        elif code == "ROOM_LIST":
+            rooms = payload.get("rooms") or []
+            if not rooms:
+                print("  (no rooms)", flush=True)
+            for room in rooms:
+                membership = "member" if room.get("member") else "not member"
+                print(
+                    f"  [{room.get('room_id')}] {room.get('name')} ({membership})",
+                    flush=True,
+                )
         return
     if data.get("type") == "event":
         payload = data.get("payload") or {}
