@@ -1,0 +1,31 @@
+{
+  "recipe_id": "demo_pizza_recipe",
+  "description": "Protected fragments adapted from a publicly shared pizza recipe",
+  "fragments": [
+    {
+      "id": "dough_flour_water",
+      "category": "dough_composition",
+      "text": "Mix 500 grams of bread flour with 325 milliliters of warm water"
+    },
+    {
+      "id": "dough_yeast_salt",
+      "category": "ingredient_quantities",
+      "text": "Add 7 grams of dry yeast and 10 grams of fine salt"
+    },
+    {
+      "id": "knead_and_rise",
+      "category": "preparation_and_timing",
+      "text": "Knead the dough for 10 minutes, then let it rise for 90 minutes"
+    },
+    {
+      "id": "oven_temperature",
+      "category": "temperature",
+      "text": "Preheat the oven to 250 degrees Celsius"
+    },
+    {
+      "id": "bake_timing",
+      "category": "timing",
+      "text": "Bake the pizza for 10 to 12 minutes"
+    }
+  ]
+}

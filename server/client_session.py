@@ -221,7 +221,12 @@ import logging
 from auth_service import AuthService
 from errors import AppError
 from room_service import RoomService
-from security import AntiBotRateLimiter, URLReputationChecker, VirusTotalClient
+from security import (
+    AntiBotRateLimiter,
+    DLPChecker,
+    URLReputationChecker,
+    VirusTotalClient,
+)
 from storage import StorageManager
 
 from .logging_config import connection_fields, log_event
@@ -257,6 +262,7 @@ auth_service = AuthService(storage)
 room_service = RoomService(storage)
 anti_bot = AntiBotRateLimiter()
 url_reputation = URLReputationChecker(VirusTotalClient())
+dlp = DLPChecker()
 
 
 class ClientSession:
@@ -1019,6 +1025,31 @@ async def handle_send_message(
         return build_error(
             request_id,
             url_decision.reason_code,
+            "Message blocked by security policy",
+        )
+
+    dlp_result = dlp.check_message(message)
+    dlp_decision = dlp_result.decision
+    log_event(
+        logger,
+        logging.INFO if dlp_decision.allowed else logging.WARNING,
+        "SECURITY_DECISION",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+        control=dlp_decision.control,
+        decision="ALLOW" if dlp_decision.allowed else "BLOCK",
+        action=dlp_decision.action,
+        reason_code=dlp_decision.reason_code,
+        matched_fragment_id=dlp_result.matched_fragment_id,
+        length=len(message),
+    )
+
+    if not dlp_decision.allowed:
+        return build_error(
+            request_id,
+            dlp_decision.reason_code,
             "Message blocked by security policy",
         )
 
