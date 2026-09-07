@@ -1,55 +1,29 @@
-# # from fastapi import FastAPI
+import asyncio
 
-# # app = FastAPI()
-
-# # @app.get("/")
-# # def read_root():
-# #   return {"message": "Hello from Laptop A!"}
-
-# # Source - https://stackoverflow.com/q/67539425
-# # Posted by Michał Strugarek
-# # Retrieved 2026-09-06, License - CC BY-SA 4.0
-
-# from socket import *
-
-
-# lista = ['computer']
-
-# s = socket(AF_INET, SOCK_STREAM)
-
-# port = 21312
-# s.bind(('172.20.10.2', port))
-
-# s.listen(5)
-# while True:
-#     for i in range (0, len(lista)):
-#         a = str(lista[i]).encode()
-#         a = str(lista[i]).encode()
-#         c, addr = s.accept()
-#         print("CONNECTION WITH",addr)
-#         c.send(a)
-#         print(a)
-#         c.close()
-            
-import socket
+from websockets.asyncio.server import serve
 
 HOST = "0.0.0.0"
-PORT = 21312
+PORT = 8765
+WEBSOCKET_PATH = "/ws"
+HELLO_REPLY = "hello"
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-server.bind((HOST, PORT))
-server.listen(5)
+async def handle_client(websocket):
+    if websocket.request.path != WEBSOCKET_PATH:
+        await websocket.close()
+        return
 
-print(f"Server listening on port {PORT}...")
+    print("CLIENT_CONNECTED", flush=True)
+    message = await websocket.recv()
+    await websocket.send(HELLO_REPLY)
+    print("Recive message: ", message, flush=True)
 
-while True:
-    client, addr = server.accept()
 
-    print("Connection from:", addr)
+async def main():
+    print("SERVER_STARTED", flush=True)
+    async with serve(handle_client, HOST, PORT) as server:
+        await server.serve_forever()
 
-    message = "computer"
-    client.sendall(message.encode())
 
-    client.close()
-
+if __name__ == "__main__":
+    asyncio.run(main())
