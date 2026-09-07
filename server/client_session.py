@@ -221,7 +221,7 @@ import logging
 from auth_service import AuthService
 from errors import AppError
 from room_service import RoomService
-from security import AntiBotRateLimiter
+from security import AntiBotRateLimiter, URLReputationChecker, VirusTotalClient
 from storage import StorageManager
 
 from .logging_config import connection_fields, log_event
@@ -256,6 +256,7 @@ storage = StorageManager()
 auth_service = AuthService(storage)
 room_service = RoomService(storage)
 anti_bot = AntiBotRateLimiter()
+url_reputation = URLReputationChecker(VirusTotalClient())
 
 
 class ClientSession:
@@ -993,6 +994,31 @@ async def handle_send_message(
         return build_error(
             request_id,
             security_decision.reason_code,
+            "Message blocked by security policy",
+        )
+
+    url_result = await url_reputation.check_message(message)
+    url_decision = url_result.decision
+    log_event(
+        logger,
+        logging.INFO if url_decision.allowed else logging.WARNING,
+        "SECURITY_DECISION",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+        control=url_decision.control,
+        decision="ALLOW" if url_decision.allowed else "BLOCK",
+        action=url_decision.action,
+        reason_code=url_decision.reason_code,
+        domain=url_result.domain,
+        length=len(message),
+    )
+
+    if not url_decision.allowed:
+        return build_error(
+            request_id,
+            url_decision.reason_code,
             "Message blocked by security policy",
         )
 
