@@ -71,7 +71,10 @@ def display_server_message(text):
         return
     if data.get("type") == "event":
         payload = data.get("payload") or {}
-        print(payload.get("message", text), flush=True)
+        username = payload.get("sender_username", "?")
+        room_name = payload.get("room_name", "?")
+        chat_text = payload.get("message", "")
+        print(f"[{username} @ {room_name}]: {chat_text}", flush=True)
         return
     print(text, flush=True)
 

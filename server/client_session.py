@@ -3,7 +3,9 @@ from protocol import (
     CODE_ALREADY_ROOM_MEMBER,
     CODE_INVALID_PAYLOAD,
     CODE_LOGIN_SUCCESS,
+    CODE_MESSAGE_ACCEPTED,
     CODE_NOT_AUTHENTICATED,
+    CODE_NOT_ROOM_MEMBER,
     CODE_ROOM_CREATED,
     CODE_ROOM_JOINED,
     CODE_ROOM_LIST,
@@ -11,7 +13,9 @@ from protocol import (
     CODE_ROOM_NOT_FOUND,
     CODE_USER_ALREADY_ONLINE,
     build_error,
+    build_event,
     build_ok,
+    encode,
 )
 
 
@@ -57,7 +61,7 @@ def parse_room_id(value):
     return None
 
 
-def handle_request(session, request):
+async def handle_request(session, request):
     action = request["action"]
     request_id = request["request_id"]
     payload = request["payload"]
@@ -74,7 +78,7 @@ def handle_request(session, request):
     if action == "list_rooms":
         return handle_list_rooms(session, request_id)
     if action == "send_message":
-        return build_ok(request_id)
+        return await handle_send_message(session, request_id, payload)
 
     return None
 
@@ -167,3 +171,46 @@ def handle_list_rooms(session, request_id):
             }
         )
     return build_ok(request_id, CODE_ROOM_LIST, {"rooms": rooms})
+
+
+async def handle_send_message(session, request_id, payload):
+    room_id = parse_room_id(payload.get("room_id"))
+    if room_id is None:
+        return build_error(request_id, CODE_INVALID_PAYLOAD, "room_id is required")
+
+    message = payload.get("message")
+    if not isinstance(message, str) or message.strip() == "":
+        return build_error(request_id, CODE_INVALID_PAYLOAD, "message is required")
+    message = message.strip()
+
+    room = store.rooms.get(room_id)
+    if room is None:
+        return build_error(request_id, CODE_ROOM_NOT_FOUND, "Room does not exist")
+    if session.user_id not in room["members"]:
+        return build_error(
+            request_id, CODE_NOT_ROOM_MEMBER, "Not a member of this room"
+        )
+
+    event = build_event(
+        "room_message",
+        {
+            "room_id": room_id,
+            "room_name": room["name"],
+            "sender_id": session.user_id,
+            "sender_username": session.username,
+            "message": message,
+        },
+    )
+    encoded_event = encode(event)
+    print("MESSAGE_ACCEPTED", "length", len(message), flush=True)
+
+    for member_id in room["members"]:
+        member_session = store.online_users.get(member_id)
+        if member_session is None:
+            continue
+        try:
+            await member_session.websocket.send(encoded_event)
+        except Exception:
+            print("SEND_FAILED", flush=True)
+
+    return build_ok(request_id, CODE_MESSAGE_ACCEPTED)

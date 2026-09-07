@@ -18,7 +18,7 @@ PORT = 8765
 WEBSOCKET_PATH = "/ws"
 
 
-def reply_for_message(session, text):
+async def reply_for_message(session, text):
     data = parse_json(text)
     if data is None:
         print("VALIDATION_FAILED", CODE_INVALID_JSON, flush=True)
@@ -35,7 +35,7 @@ def reply_for_message(session, text):
     if action not in KNOWN_ACTIONS:
         return build_error(request["request_id"], CODE_UNKNOWN_ACTION, "Unknown action")
 
-    return handle_request(session, request)
+    return await handle_request(session, request)
 
 
 async def handle_client(websocket):
@@ -47,7 +47,7 @@ async def handle_client(websocket):
     print("CLIENT_CONNECTED", flush=True)
     try:
         async for message in session.websocket:
-            await session.websocket.send(encode(reply_for_message(session, message)))
+            await session.websocket.send(encode(await reply_for_message(session, message)))
     finally:
         handle_disconnect(session)
 
