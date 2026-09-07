@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from http import HTTPStatus
 
 from websockets.asyncio.server import serve
 
@@ -18,8 +19,29 @@ from .protocol import (
 HOST = "0.0.0.0"
 PORT = 8765
 WEBSOCKET_PATH = "/ws"
+HEALTH_PATH = "/health"
+HEALTH_RESPONSE_BODY = '{"status":"ok"}'
 
 logger = logging.getLogger(__name__)
+
+
+def process_http_request(connection, request):
+    if request.path != HEALTH_PATH:
+        return None
+
+    response = connection.respond(
+        HTTPStatus.OK,
+        HEALTH_RESPONSE_BODY,
+    )
+    del response.headers["Content-Type"]
+    response.headers["Content-Type"] = "application/json"
+    log_event(
+        logger,
+        logging.INFO,
+        "HEALTH_CHECK",
+        status="ok",
+    )
+    return response
 
 
 async def reply_for_message(session, text):
@@ -105,7 +127,12 @@ async def handle_client(websocket):
 
 async def main():
     configure_logging()
-    async with serve(handle_client, HOST, PORT) as server:
+    async with serve(
+        handle_client,
+        HOST,
+        PORT,
+        process_request=process_http_request,
+    ) as server:
         log_event(
             logger,
             logging.INFO,
