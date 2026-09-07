@@ -1,11 +1,6 @@
-import logging
-
 from errors import AppError
 from models import Room
 from storage import StorageManager
-
-
-logger = logging.getLogger(__name__)
 
 
 class RoomService:
@@ -42,13 +37,6 @@ class RoomService:
         self.next_room_id += 1
         self.rooms.append(room)
         self.storage.save_rooms(self.rooms)
-
-        logger.info(
-            "ROOM_CREATED room_id=%s name=%s admin_user_id=%s",
-            room.room_id,
-            room.name,
-            room.admin_user_id,
-        )
 
         return room
 
@@ -88,12 +76,6 @@ class RoomService:
         room.members.add(user_id)
         self.storage.save_rooms(self.rooms)
 
-        logger.info(
-            "ROOM_JOINED room_id=%s user_id=%s",
-            room.room_id,
-            user_id,
-        )
-
         return room
 
     def leave_room(self, user_id: int, room_id: int) -> Room:
@@ -114,24 +96,12 @@ class RoomService:
         room.members.remove(user_id)
         self.storage.save_rooms(self.rooms)
 
-        logger.info(
-            "ROOM_LEFT room_id=%s user_id=%s",
-            room.room_id,
-            user_id,
-        )
-
         return room
 
     def authorize_message(self, user_id: int, room_id: int) -> Room:
         room = self.get_room(room_id)
 
         if user_id not in room.members:
-            logger.info(
-                "ACCESS_DENIED user_id=%s room_id=%s reason=NOT_ROOM_MEMBER",
-                user_id,
-                room_id,
-            )
-
             raise AppError(
                 "NOT_ROOM_MEMBER",
                 "User is not a member of this room",

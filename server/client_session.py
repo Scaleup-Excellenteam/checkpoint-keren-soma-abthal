@@ -216,11 +216,14 @@
 #     return build_ok(request_id, CODE_MESSAGE_ACCEPTED)
 
 
+import logging
+
 from auth_service import AuthService
 from errors import AppError
 from room_service import RoomService
 from storage import StorageManager
 
+from .logging_config import connection_fields, log_event
 from .protocol import (
     CODE_ALREADY_AUTHENTICATED,
     CODE_INVALID_PAYLOAD,
@@ -239,6 +242,9 @@ from .protocol import (
     build_ok,
     encode,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -286,15 +292,21 @@ ACTIONS_NEEDING_LOGIN = frozenset(
 
 
 def handle_disconnect(session):
+    user_id = session.user_id
+    username = session.username
     if session.user_id is not None:
         store.online_users.pop(
             session.user_id,
             None,
         )
 
-    print(
+    log_event(
+        logger,
+        logging.INFO,
         "CLIENT_DISCONNECTED",
-        flush=True,
+        username=username,
+        user_id=user_id,
+        **connection_fields(session.websocket),
     )
 
 
@@ -306,6 +318,29 @@ def parse_room_id(value):
         return int(value)
 
     return None
+
+
+def normalized_username(value):
+    if not isinstance(value, str):
+        return None
+    return value.strip().lower()
+
+
+def room_log_fields(room_id):
+    fields = {"room_id": room_id}
+    room = next(
+        (room for room in room_service.rooms if room.room_id == room_id),
+        None,
+    )
+    if room is not None:
+        fields["room_name"] = room.name
+    return fields
+
+
+def message_length(value):
+    if not isinstance(value, str):
+        return 0
+    return len(value.strip())
 
 
 async def handle_request(
@@ -320,6 +355,22 @@ async def handle_request(
         action in ACTIONS_NEEDING_LOGIN
         and session.user_id is None
     ):
+        fields = {
+            "action": action,
+            "reason_code": CODE_NOT_AUTHENTICATED,
+        }
+        if action == "send_message":
+            fields["length"] = message_length(payload.get("message"))
+            room_id = parse_room_id(payload.get("room_id"))
+            if room_id is not None:
+                fields.update(room_log_fields(room_id))
+
+        log_event(
+            logger,
+            logging.WARNING,
+            "UNAUTHORIZED_REQUEST",
+            **fields,
+        )
         return build_error(
             request_id,
             CODE_NOT_AUTHENTICATED,
@@ -393,6 +444,14 @@ def handle_signup(
     payload,
 ):
     if session.user_id is not None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "SIGNUP_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=CODE_ALREADY_AUTHENTICATED,
+        )
         return build_error(
             request_id,
             CODE_ALREADY_AUTHENTICATED,
@@ -406,6 +465,13 @@ def handle_signup(
         not isinstance(username, str)
         or not isinstance(password, str)
     ):
+        log_event(
+            logger,
+            logging.WARNING,
+            "SIGNUP_FAILED",
+            username=normalized_username(username),
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -419,11 +485,26 @@ def handle_signup(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "SIGNUP_FAILED",
+            username=normalized_username(username),
+            reason_code=error.code,
+        )
         return build_error(
             request_id,
             error.code,
             str(error),
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "SIGNUP_SUCCESS",
+        username=user.username,
+        user_id=user.user_id,
+    )
 
     return build_ok(
         request_id,
@@ -451,6 +532,13 @@ def handle_login(
         not isinstance(username, str)
         or not isinstance(password, str)
     ):
+        log_event(
+            logger,
+            logging.WARNING,
+            "LOGIN_FAILED",
+            username=normalized_username(username),
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -458,6 +546,14 @@ def handle_login(
         )
 
     if session.user_id is not None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "LOGIN_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=CODE_ALREADY_AUTHENTICATED,
+        )
         return build_error(
             request_id,
             CODE_ALREADY_AUTHENTICATED,
@@ -471,6 +567,13 @@ def handle_login(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "LOGIN_FAILED",
+            username=normalized_username(username),
+            reason_code=error.code,
+        )
         return build_error(
             request_id,
             error.code,
@@ -478,6 +581,14 @@ def handle_login(
         )
 
     if user.user_id in store.online_users:
+        log_event(
+            logger,
+            logging.WARNING,
+            "LOGIN_FAILED",
+            username=user.username,
+            user_id=user.user_id,
+            reason_code=CODE_USER_ALREADY_ONLINE,
+        )
         return build_error(
             request_id,
             CODE_USER_ALREADY_ONLINE,
@@ -490,6 +601,14 @@ def handle_login(
     store.online_users[
         user.user_id
     ] = session
+
+    log_event(
+        logger,
+        logging.INFO,
+        "LOGIN_SUCCESS",
+        username=user.username,
+        user_id=user.user_id,
+    )
 
     return build_ok(
         request_id,
@@ -509,6 +628,8 @@ def handle_logout(
     session,
     request_id,
 ):
+    user_id = session.user_id
+    username = session.username
     if session.user_id is not None:
         store.online_users.pop(
             session.user_id,
@@ -517,6 +638,14 @@ def handle_logout(
 
     session.user_id = None
     session.username = None
+
+    log_event(
+        logger,
+        logging.INFO,
+        "LOGOUT",
+        username=username,
+        user_id=user_id,
+    )
 
     return build_ok(
         request_id,
@@ -536,6 +665,14 @@ def handle_create_room(
     name = payload.get("name")
 
     if not isinstance(name, str):
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_CREATE_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -549,11 +686,30 @@ def handle_create_room(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_CREATE_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            room_name=name.strip(),
+            reason_code=error.code,
+        )
         return build_error(
             request_id,
             error.code,
             str(error),
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "ROOM_CREATED",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+    )
 
     return build_ok(
         request_id,
@@ -579,6 +735,14 @@ def handle_join_room(
     )
 
     if room_id is None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_JOIN_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -592,11 +756,30 @@ def handle_join_room(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_JOIN_DENIED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=error.code,
+            **room_log_fields(room_id),
+        )
         return build_error(
             request_id,
             error.code,
             str(error),
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "ROOM_JOINED",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+    )
 
     return build_ok(
         request_id,
@@ -622,6 +805,14 @@ def handle_leave_room(
     )
 
     if room_id is None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_LEAVE_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -635,11 +826,30 @@ def handle_leave_room(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "ROOM_LEAVE_FAILED",
+            username=session.username,
+            user_id=session.user_id,
+            reason_code=error.code,
+            **room_log_fields(room_id),
+        )
         return build_error(
             request_id,
             error.code,
             str(error),
         )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "ROOM_LEFT",
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+    )
 
     return build_ok(
         request_id,
@@ -661,6 +871,15 @@ def handle_list_rooms(
 ):
     rooms = room_service.list_rooms(
         session.user_id
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "ROOM_LIST_REQUESTED",
+        username=session.username,
+        user_id=session.user_id,
+        room_count=len(rooms),
     )
 
     return build_ok(
@@ -685,19 +904,38 @@ async def handle_send_message(
         payload.get("room_id")
     )
 
+    message = payload.get("message")
+
     if room_id is None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "MESSAGE_REJECTED",
+            username=session.username,
+            user_id=session.user_id,
+            length=message_length(message),
+            reason_code=CODE_INVALID_PAYLOAD,
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
             "room_id is required",
         )
 
-    message = payload.get("message")
-
     if (
         not isinstance(message, str)
         or message.strip() == ""
     ):
+        log_event(
+            logger,
+            logging.WARNING,
+            "MESSAGE_REJECTED",
+            username=session.username,
+            user_id=session.user_id,
+            length=message_length(message),
+            reason_code="EMPTY_MESSAGE" if isinstance(message, str) else CODE_INVALID_PAYLOAD,
+            **room_log_fields(room_id),
+        )
         return build_error(
             request_id,
             CODE_INVALID_PAYLOAD,
@@ -717,6 +955,16 @@ async def handle_send_message(
         )
 
     except AppError as error:
+        log_event(
+            logger,
+            logging.WARNING,
+            "MESSAGE_REJECTED",
+            username=session.username,
+            user_id=session.user_id,
+            length=len(message),
+            reason_code=error.code,
+            **room_log_fields(room_id),
+        )
         return build_error(
             request_id,
             error.code,
@@ -740,11 +988,15 @@ async def handle_send_message(
 
     encoded_event = encode(event)
 
-    print(
+    log_event(
+        logger,
+        logging.INFO,
         "MESSAGE_ACCEPTED",
-        "length",
-        len(message),
-        flush=True,
+        username=session.username,
+        user_id=session.user_id,
+        room_name=room.name,
+        room_id=room.room_id,
+        length=len(message),
     )
 
     for member_id in room.members:
@@ -764,9 +1016,17 @@ async def handle_send_message(
             )
 
         except Exception:
-            print(
-                "SEND_FAILED",
-                flush=True,
+            log_event(
+                logger,
+                logging.ERROR,
+                "INTERNAL_ERROR",
+                exc_info=True,
+                username=session.username,
+                user_id=session.user_id,
+                room_name=room.name,
+                room_id=room.room_id,
+                recipient_user_id=member_id,
+                reason_code="MESSAGE_DELIVERY_FAILED",
             )
 
     return build_ok(
