@@ -74,13 +74,14 @@ def extract_domains(message):
 
 
 class URLReputationChecker:
-    def __init__(self, client, cache_ttl_seconds=600.0, clock=time.monotonic):
+    def __init__(self, client, cache_ttl_seconds=600.0, clock=time.monotonic, timeout_seconds=1.5):
         if cache_ttl_seconds < 0:
             raise ValueError("cache_ttl_seconds cannot be negative")
 
         self.client = client
         self.cache_ttl_seconds = cache_ttl_seconds
         self.clock = clock
+        self.timeout_seconds = timeout_seconds
         self._cache: dict[str, tuple[float, SecurityDecision]] = {}
 
     async def check_message(self, message):
@@ -88,23 +89,23 @@ class URLReputationChecker:
         if not domains:
             return URLReputationResult(_allow(REASON_URL_REPUTATION_OK))
 
-        best_result = None
+        # בדיקת כל הדומיינים במקביל במקום בלולאה סדרתית
+        results = await asyncio.gather(*(self.check_domain(domain) for domain in domains))
+
+        # אם יש דומיין שנחסם, מחזירים אותו מיד
+        for result in results:
+            if not result.decision.allowed:
+                return result
+
         priority = {
             REASON_URL_REPUTATION_OK: 0,
             REASON_URL_REPUTATION_UNKNOWN: 1,
             REASON_URL_CHECK_UNAVAILABLE: 2,
         }
 
-        for domain in domains:
-            result = await self.check_domain(domain)
-            if not result.decision.allowed:
-                return result
-
-            if (
-                best_result is None
-                or priority[result.decision.reason_code]
-                > priority[best_result.decision.reason_code]
-            ):
+        best_result = results[0]
+        for result in results[1:]:
+            if priority[result.decision.reason_code] > priority[best_result.decision.reason_code]:
                 best_result = result
 
         return best_result
@@ -123,7 +124,11 @@ class URLReputationChecker:
             self._cache.pop(domain, None)
 
         try:
-            report = await asyncio.to_thread(self.client.get_domain_report, domain)
+            # הגבלת זמן תגובה למניעת תקיעת השרת אם ה-API מגיב לאט
+            report = await asyncio.wait_for(
+                asyncio.to_thread(self.client.get_domain_report, domain),
+                timeout=self.timeout_seconds,
+            )
             decision = _decision_for_report(report)
         except Exception:
             return URLReputationResult(

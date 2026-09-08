@@ -266,6 +266,11 @@ url_reputation = URLReputationChecker(VirusTotalClient())
 dlp = DLPChecker(
     embedding_backend=SentenceTransformerEmbeddingBackend(),
 )
+# חימום מראש של המודל וקטעי המתכון בזמן עליית השרת
+try:
+    dlp._get_protected_embeddings()
+except Exception as e:
+    logger.warning(f"DLP warmup skipped or failed: {e}")
 
 
 class ClientSession:

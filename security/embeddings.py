@@ -1,5 +1,5 @@
 from threading import Lock
-
+import numpy as np
 
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -10,19 +10,20 @@ class SentenceTransformerEmbeddingBackend:
         self._model = None
         self._lock = Lock()
 
+    def _load_model(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(self.model_name)
+        return self._model
+
     def encode(self, texts):
         with self._lock:
-            if self._model is None:
-                from sentence_transformers import SentenceTransformer
-
-                self._model = SentenceTransformer(self.model_name)
-
-            embeddings = self._model.encode(
+            model = self._load_model()
+            embeddings = model.encode(
                 list(texts),
                 normalize_embeddings=True,
                 show_progress_bar=False,
+                convert_to_numpy=True,
             )
 
-        if hasattr(embeddings, "tolist"):
-            return embeddings.tolist()
-        return embeddings
+        return np.asarray(embeddings, dtype=np.float32)

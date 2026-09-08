@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock
 
 from .decision import SecurityDecision
+import numpy as np
 
 
 CONTROL_DLP = "DLP"
@@ -109,12 +110,19 @@ class DLPChecker:
     def _check_semantic(self, message):
         protected_embeddings = self._get_protected_embeddings()
         message_embedding = self.embedding_backend.encode([message])[0]
-        similarities = [
-            _cosine_similarity(message_embedding, protected_embedding)
-            for protected_embedding in protected_embeddings
-        ]
-        best_index = max(range(len(similarities)), key=similarities.__getitem__)
-        similarity = similarities[best_index]
+
+        # חישוב מהיר בווקטור אחד באמצעות numpy
+        msg_vec = np.array(message_embedding, dtype=np.float32)
+        prot_mat = np.array(protected_embeddings, dtype=np.float32)
+
+        # נרמול וקטורים
+        msg_norm = msg_vec / (np.linalg.norm(msg_vec) + 1e-9)
+        prot_norm = prot_mat / (np.linalg.norm(prot_mat, axis=1, keepdims=True) + 1e-9)
+
+        # מכפלה מטריצית של כל הדמיונות בבת אחת
+        similarities = np.dot(prot_norm, msg_norm)
+        best_index = int(np.argmax(similarities))
+        similarity = float(similarities[best_index])
         fragment_id = self.fragments[best_index][0]
 
         if similarity >= self.semantic_threshold:
