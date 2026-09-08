@@ -139,7 +139,7 @@ sys.path.insert(
 from protocol import build_request, encode, parse_json
 
 
-SERVER_URL = "ws://localhost:8765/ws"
+SERVER_URL = "ws://172.20.10.2:8765/ws"
 
 PROMPT = "> "
 
