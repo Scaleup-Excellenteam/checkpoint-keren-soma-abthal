@@ -6,7 +6,6 @@ from urllib.parse import urlsplit
 
 from .decision import SecurityDecision
 
-
 CONTROL_URL = "URL"
 ACTION_ALLOW = "ALLOW"
 ACTION_BLOCK_MESSAGE = "BLOCK_MESSAGE"
@@ -31,50 +30,34 @@ class URLReputationResult:
     domain: str | None = None
 
 
-def normalize_domain(hostname):
-    if not isinstance(hostname, str):
-        return None
-
-    hostname = hostname.strip().rstrip(".").lower()
-    if not hostname:
-        return None
-
-    try:
-        return hostname.encode("idna").decode("ascii")
-    except UnicodeError:
-        return None
-
-
-def extract_domains(message):
+def extract_targets(message):
     if not isinstance(message, str):
         return []
 
-    domains = []
+    targets = []
     seen = set()
-    message_without_urls = message
+    message_clean = message
 
+    # חילוץ כתובות URL מלאות
     for match in URL_PATTERN.finditer(message):
-        url = match.group(0).rstrip(".,!?;:)]}")
-        try:
-            domain = normalize_domain(urlsplit(url).hostname)
-        except ValueError:
-            continue
-        if domain is not None and domain not in seen:
-            seen.add(domain)
-            domains.append(domain)
+        target = match.group(0).rstrip(".,!?;:)]}")
+        if target not in seen:
+            seen.add(target)
+            targets.append(target)
 
-    message_without_urls = URL_PATTERN.sub(" ", message_without_urls)
-    for match in BARE_DOMAIN_PATTERN.finditer(message_without_urls):
-        domain = normalize_domain(match.group(1))
-        if domain is not None and domain not in seen:
-            seen.add(domain)
-            domains.append(domain)
+    # חילוץ דומיינים בודדים אם אין פרוטוקול
+    message_clean = URL_PATTERN.sub(" ", message_clean)
+    for match in BARE_DOMAIN_PATTERN.finditer(message_clean):
+        target = match.group(1).rstrip(".").lower()
+        if target not in seen:
+            seen.add(target)
+            targets.append(target)
 
-    return domains
+    return targets
 
 
 class URLReputationChecker:
-    def __init__(self, client, cache_ttl_seconds=600.0, clock=time.monotonic, timeout_seconds=1.5):
+    def __init__(self, client, cache_ttl_seconds=600.0, clock=time.monotonic, timeout_seconds=2.0):
         if cache_ttl_seconds < 0:
             raise ValueError("cache_ttl_seconds cannot be negative")
 
@@ -85,14 +68,12 @@ class URLReputationChecker:
         self._cache: dict[str, tuple[float, SecurityDecision]] = {}
 
     async def check_message(self, message):
-        domains = extract_domains(message)
-        if not domains:
+        targets = extract_targets(message)
+        if not targets:
             return URLReputationResult(_allow(REASON_URL_REPUTATION_OK))
 
-        # בדיקת כל הדומיינים במקביל במקום בלולאה סדרתית
-        results = await asyncio.gather(*(self.check_domain(domain) for domain in domains))
+        results = await asyncio.gather(*(self.check_target(t) for t in targets))
 
-        # אם יש דומיין שנחסם, מחזירים אותו מיד
         for result in results:
             if not result.decision.allowed:
                 return result
@@ -110,37 +91,38 @@ class URLReputationChecker:
 
         return best_result
 
-    async def check_domain(self, domain):
-        domain = normalize_domain(domain)
-        if domain is None:
-            return URLReputationResult(_allow(REASON_URL_REPUTATION_UNKNOWN))
-
+    async def check_target(self, target):
         now = self.clock()
-        cached = self._cache.get(domain)
+        cached = self._cache.get(target)
         if cached is not None:
             expires_at, decision = cached
             if expires_at > now:
-                return URLReputationResult(decision, domain)
-            self._cache.pop(domain, None)
+                return URLReputationResult(decision, target)
+            self._cache.pop(target, None)
 
         try:
-            # הגבלת זמן תגובה למניעת תקיעת השרת אם ה-API מגיב לאט
-            report = await asyncio.wait_for(
-                asyncio.to_thread(self.client.get_domain_report, domain),
-                timeout=self.timeout_seconds,
-            )
+            if target.startswith("http://") or target.startswith("https://"):
+                report = await asyncio.wait_for(
+                    asyncio.to_thread(self.client.get_url_report, target),
+                    timeout=self.timeout_seconds,
+                )
+            else:
+                report = await asyncio.wait_for(
+                    asyncio.to_thread(self.client.get_domain_report, target),
+                    timeout=self.timeout_seconds,
+                )
             decision = _decision_for_report(report)
         except Exception:
             return URLReputationResult(
                 _allow(REASON_URL_CHECK_UNAVAILABLE),
-                domain,
+                target,
             )
 
-        self._cache[domain] = (
+        self._cache[target] = (
             self.clock() + self.cache_ttl_seconds,
             decision,
         )
-        return URLReputationResult(decision, domain)
+        return URLReputationResult(decision, target)
 
 
 def _decision_for_report(report):
