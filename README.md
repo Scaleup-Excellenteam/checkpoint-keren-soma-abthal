@@ -43,17 +43,20 @@ Both the message limit and window are configurable. These defaults are a demonst
 
 ### URL / Domain Reputation
 
-The URL control detects HTTP/HTTPS URLs and bare domains, extracts and normalizes each hostname, and queries the existing VirusTotal API v3 domain report. It never opens the user-provided website and does not submit it for scanning. VirusTotal supplies reputation signals; this server applies the policy:
+The URL control detects HTTP/HTTPS URLs and bare domains. For each complete URL it normalizes the hostname and queries both the VirusTotal API v3 domain report and the existing full-URL report; bare domains retain the domain-only lookup. It never opens the user-provided website and does not submit unknown URLs for scanning. VirusTotal supplies reputation signals; this server applies the policy:
 
 | VirusTotal signal | Decision | Reason code |
 |---|---|---|
-| `malicious >= 3` | Block | `URL_MALICIOUS` |
-| `malicious >= 1` and `suspicious >= 2` | Block | `URL_HIGH_RISK` |
-| Otherwise | Allow | `URL_REPUTATION_OK` |
-| No domain report | Allow | `URL_REPUTATION_UNKNOWN` |
-| Missing key, timeout, quota/rate limit, or service failure | Allow | `URL_CHECK_UNAVAILABLE` |
+| Malicious domain result | Block | `URL_MALICIOUS` or `URL_HIGH_RISK` |
+| Malicious full-URL result | Block | `MALICIOUS_URL` |
+| Suspicious-only full-URL result | Allow under the existing suspicious policy | `SUSPICIOUS_URL` |
+| Known report without detections | Allow | `URL_REPUTATION_OK` |
+| No domain report | Allow, explicitly unknown | `URL_REPUTATION_UNKNOWN` |
+| No full-URL report | Allow, explicitly unknown | `UNKNOWN_URL` |
+| Domain lookup unavailable | Allow, explicitly unavailable | `URL_CHECK_UNAVAILABLE` |
+| Full-URL lookup unavailable | Allow, explicitly unavailable | `VT_URL_CHECK_FAILED` |
 
-Results are cached in memory per normalized domain for 10 minutes by default; unavailable checks are not cached. The TTL is configurable. This version evaluates **domain reputation**, not full URL reputation.
+Results are cached in memory per normalized domain and exact full URL for 10 minutes by default; unavailable checks are not cached. The TTL is configurable. The most severe result across every domain and URL wins, so either reputation layer can block the message. Security logs include the selected analysis counts and URL path, while credentials, query parameters, and fragments are redacted.
 
 ### DLP – Rule Based
 
@@ -138,13 +141,13 @@ The public Sentence Transformers model may be downloaded on the first message th
 
 ## 8. Environment Variables
 
-Set a VirusTotal API key to enable live domain reputation reports:
+Set a VirusTotal API key to enable live domain and full-URL reputation reports:
 
 ```bash
 export VIRUSTOTAL_API_KEY="YOUR_API_KEY"
 ```
 
-Never commit the key. If the key or VirusTotal service is unavailable, domain checks fail open with `URL_CHECK_UNAVAILABLE`; the remaining controls and chat continue to operate.
+Never commit the key. If the key or VirusTotal service is unavailable, reputation checks keep the current fail-open action so the remaining controls and chat continue to operate, but return explicit `URL_CHECK_UNAVAILABLE` or `VT_URL_CHECK_FAILED` states rather than reporting the URL as safe.
 
 ## 9. Run the Server
 
@@ -232,14 +235,14 @@ Both scripts accept `--url ws://<host>:8765/ws`; the DLP script also accepts `--
 python -m pytest -q
 ```
 
-Current verified result on 2026-09-08 with Python 3.12.3: **55 passed**.
+Current verified result on 2026-09-08 with Python 3.12.3: **67 passed**.
 
 Automated tests use fake embedding and VirusTotal backends where needed, so they do not require a live API call or model download.
 
 ## 14. Known Limitations
 
 - Anti-Bot currently focuses on per-user message rate limiting and keeps state only in memory.
-- VirusTotal checks domain reputation rather than full URL reputation, depends on an external service with API quotas, and fails open when unavailable.
+- VirusTotal lookups depend on an external service and API quotas. Each uncached complete URL can require one domain lookup and one full-URL lookup; unknown URLs remain `UNKNOWN_URL` because the application intentionally does not submit them for scanning. Unavailable checks retain the demo's fail-open action but are explicitly logged.
 - Embedding similarity can produce false positives and false negatives; the semantic threshold requires production-specific tuning.
 - DLP has no cross-message, user-history, or cross-room context and no LLM-based reasoning.
 - Sophisticated obfuscation can bypass the current conservative normalization and similarity policy.
@@ -254,7 +257,7 @@ Automated tests use fake embedding and VirusTotal backends where needed, so they
 4. Send a safe message and confirm both clients receive it.
 5. Trigger Anti-Bot and confirm the violating message is blocked with `ANTIBOT_RATE_LIMIT`.
 6. Send a safe URL/domain and confirm it is allowed.
-7. Send a malicious test domain whose VirusTotal report meets the policy and confirm `URL_MALICIOUS` or `URL_HIGH_RISK`.
+7. Send a malicious test domain and confirm `URL_MALICIOUS` or `URL_HIGH_RISK`; then send a known malicious path on an otherwise safe domain and confirm `MALICIOUS_URL`.
 8. Send an exact protected recipe fragment and confirm `DLP_PROTECTED_CONTENT` without broadcast.
 9. Send a paraphrase that exceeds the configured similarity threshold and confirm `DLP_SEMANTIC_MATCH` without broadcast.
 10. Show the structured `SECURITY_DECISION` logs and reason codes.

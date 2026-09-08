@@ -227,6 +227,7 @@ from security import (
     SentenceTransformerEmbeddingBackend,
     URLReputationChecker,
     VirusTotalClient,
+    redact_url_for_log,
 )
 from storage import StorageManager
 
@@ -1021,6 +1022,11 @@ async def handle_send_message(
         action=url_decision.action,
         reason_code=url_decision.reason_code,
         domain=url_result.domain,
+        url=redact_url_for_log(url_result.url) if url_result.url else None,
+        malicious=url_result.malicious,
+        suspicious=url_result.suspicious,
+        harmless=url_result.harmless,
+        undetected=url_result.undetected,
         length=len(message),
     )
 

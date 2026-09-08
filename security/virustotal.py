@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from urllib.error import HTTPError, URLError
@@ -6,6 +7,7 @@ from urllib.request import Request, urlopen
 
 
 VIRUSTOTAL_DOMAIN_ENDPOINT = "https://www.virustotal.com/api/v3/domains/{domain}"
+VIRUSTOTAL_URL_ENDPOINT = "https://www.virustotal.com/api/v3/urls/{url_id}"
 
 
 class VirusTotalUnavailableError(Exception):
@@ -18,12 +20,22 @@ class VirusTotalClient:
         self.timeout = timeout
 
     def get_domain_report(self, domain):
+        endpoint = VIRUSTOTAL_DOMAIN_ENDPOINT.format(
+            domain=quote(domain, safe=""),
+        )
+        return self._get_report(endpoint)
+
+    def get_url_report(self, url):
+        endpoint = VIRUSTOTAL_URL_ENDPOINT.format(url_id=get_url_id(url))
+        return self._get_report(endpoint)
+
+    def _get_report(self, endpoint):
         api_key = self.api_key or os.getenv("VIRUSTOTAL_API_KEY")
         if not api_key:
             raise VirusTotalUnavailableError("VirusTotal API key is unavailable")
 
         request = Request(
-            VIRUSTOTAL_DOMAIN_ENDPOINT.format(domain=quote(domain, safe="")),
+            endpoint,
             headers={"x-apikey": api_key},
             method="GET",
         )
@@ -35,7 +47,13 @@ class VirusTotalClient:
             if error.code == 404:
                 return None
             raise VirusTotalUnavailableError("VirusTotal request failed") from error
-        except (OSError, TimeoutError, URLError, json.JSONDecodeError) as error:
+        except (
+            OSError,
+            TimeoutError,
+            URLError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as error:
             raise VirusTotalUnavailableError("VirusTotal request failed") from error
 
         try:
@@ -48,3 +66,7 @@ class VirusTotalClient:
             }
         except (AttributeError, KeyError, TypeError, ValueError) as error:
             raise VirusTotalUnavailableError("Invalid VirusTotal response") from error
+
+
+def get_url_id(url):
+    return base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")

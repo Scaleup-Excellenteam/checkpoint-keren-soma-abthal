@@ -7,7 +7,14 @@ from .dlp import (
     normalize_dlp_text,
 )
 from .embeddings import SentenceTransformerEmbeddingBackend
-from .url_reputation import URLReputationChecker, URLReputationResult, extract_domains
+from .url_reputation import (
+    ExtractedURL,
+    URLReputationChecker,
+    URLReputationResult,
+    extract_domains,
+    extract_urls,
+    redact_url_for_log,
+)
 from .virustotal import VirusTotalClient
 
 
@@ -16,11 +23,14 @@ __all__ = [
     "DEFAULT_SEMANTIC_THRESHOLD",
     "DLPChecker",
     "DLPResult",
+    "ExtractedURL",
     "SecurityDecision",
     "SentenceTransformerEmbeddingBackend",
     "URLReputationChecker",
     "URLReputationResult",
     "VirusTotalClient",
     "extract_domains",
+    "extract_urls",
     "normalize_dlp_text",
+    "redact_url_for_log",
 ]
